@@ -354,6 +354,9 @@ function snapPoint(wx,wy,o={}){
     pdraw.pts.forEach(q=>cands.push({x:q.x,y:q.y}))}
   let best=null,bd=r;cands.forEach(c=>{const d=Math.hypot(c.x-wx,c.y-wy);if(d<bd){bd=d;best=c}});
   if(best)return {x:best.x,y:best.y,vid:best.vid,hit:true};
+  if(o.pathLines){let bp=null,bd2=r;(S.paths||[]).forEach(p=>{if(o.excludePath&&o.excludePath.id===p.id)return;
+      for(let i=1;i<p.pts.length;i++){const q=projSeg(wx,wy,p.pts[i-1],p.pts[i]),d=Math.hypot(q.x-wx,q.y-wy);if(d<bd2){bd2=d;bp=q}}});
+    if(bp)return {x:bp.x,y:bp.y,hit:true}}
   let x=wx,y=wy,lx=false,ly=false;const f=o.from;
   if(f){const dx=x-f.x,dy=y-f.y,a=Math.abs(Math.atan2(dy,dx)),h=Math.min(a,Math.PI-a),v=Math.abs(Math.PI/2-a);
     if(o.shift){if(Math.abs(dx)>=Math.abs(dy)){y=f.y;ly=true}else{x=f.x;lx=true}}
@@ -378,12 +381,33 @@ function pill(t,x,y,ang,fg,o={}){ctx.save();ctx.translate(x,y);if(ang>Math.PI/2+
 function line(x1,y1,x2,y2){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke()}
 function ticks(x1,y1,x2,y2,len){const a=Math.atan2(y2-y1,x2-x1)+Math.PI/4,dx=Math.cos(a)*len,dy=Math.sin(a)*len;line(x1-dx,y1-dy,x1+dx,y1+dy);line(x2-dx,y2-dy,x2+dx,y2+dy)}
 
+/* Wege als Vereinigung: angrenzende Wege verschmelzen, Randlinien laufen nicht durch Anschlüsse */
+let offA=null,offB=null;
+function drawPathsUnion(list){if(!list.length)return;const cw=ctx.canvas.width,ch=ctx.canvas.height,z=view.zoom,lw=1.6;
+  if(!offA){offA=document.createElement('canvas');offB=document.createElement('canvas')}
+  [offA,offB].forEach(c=>{if(c.width!==cw||c.height!==ch){c.width=cw;c.height=ch}});
+  const a=offA.getContext('2d'),b=offB.getContext('2d');
+  [a,b].forEach(g=>{g.globalCompositeOperation='source-over';g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,cw,ch);g.setTransform(dpr,0,0,dpr,0,0);g.lineCap='butt';g.lineJoin='miter';g.miterLimit=8});
+  const trace=(g,p)=>{g.beginPath();dedupe(p.pts).forEach((q,i)=>{const [x,y]=W2S(q.x,q.y);i?g.lineTo(x,y):g.moveTo(x,y)})};
+  const col=p=>(PKINDS[p.kind]||PKINDS.traffic).c;
+  list.forEach(p=>{if(dedupe(p.pts).length<2)return;b.strokeStyle=col(p);b.lineWidth=p.width*z;trace(b,p);b.stroke();
+    a.strokeStyle=col(p);a.lineWidth=p.width*z+2*lw;trace(a,p);a.stroke()});
+  a.globalCompositeOperation='destination-out';
+  list.forEach(p=>{if(dedupe(p.pts).length<2)return;a.lineWidth=p.width*z;trace(a,p);a.stroke()});
+  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=.16;ctx.drawImage(offB,0,0);ctx.globalAlpha=1;ctx.drawImage(offA,0,0);ctx.restore()}
+function projSeg(px,py,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy;let t=l?((px-a.x)*dx+(py-a.y)*dy)/l:0;t=Math.max(0,Math.min(1,t));return {x:a.x+t*dx,y:a.y+t*dy}}
+function pathEndAt(x,y,exceptId){for(const p of S.paths||[]){if(p.id===exceptId||p.pts.length<2)continue;const n=p.pts.length-1;
+    if(Math.hypot(p.pts[0].x-x,p.pts[0].y-y)<.5)return {p,end:0};if(Math.hypot(p.pts[n].x-x,p.pts[n].y-y)<.5)return {p,end:n}}return null}
+function joinPts(A,B){const eq=(u,v)=>Math.hypot(u.x-v.x,u.y-v.y)<.5,a0=A[0],a1=A[A.length-1],b0=B[0],b1=B[B.length-1];
+  if(eq(a1,b0))return A.concat(B.slice(1));if(eq(a1,b1))return A.concat(B.slice(0,-1).reverse());
+  if(eq(a0,b1))return B.concat(A.slice(1));if(eq(a0,b0))return B.slice().reverse().concat(A.slice(1));return null}
 function drawPath(raw,width,color,o={}){const pts=dedupe(raw);if(pts.length<2)return;const z=view.zoom,L=offsetLine(pts,width/2),R=offsetLine(pts,-width/2);
   const poly=arr=>arr.forEach((q,i)=>{const [x,y]=W2S(q.x,q.y);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});
   ctx.save();ctx.lineJoin='miter';
-  ctx.beginPath();L.forEach((q,i)=>{const [x,y]=W2S(q.x,q.y);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});R.slice().reverse().forEach(q=>{const [x,y]=W2S(q.x,q.y);ctx.lineTo(x,y)});ctx.closePath();
+  if(!o.noBand){ctx.beginPath();L.forEach((q,i)=>{const [x,y]=W2S(q.x,q.y);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});R.slice().reverse().forEach(q=>{const [x,y]=W2S(q.x,q.y);ctx.lineTo(x,y)});ctx.closePath();
   ctx.fillStyle=hexA(color,o.alpha??(o.sel?.26:.16));ctx.fill();
-  ctx.strokeStyle=color;ctx.lineWidth=o.sel?2.6:o.hov?2.2:1.6;[L,R].forEach(side=>{ctx.beginPath();poly(side);ctx.stroke()});
+  ctx.strokeStyle=color;ctx.lineWidth=o.sel?2.6:o.hov?2.2:1.6;[L,R].forEach(side=>{ctx.beginPath();poly(side);ctx.stroke()})}
+  ctx.strokeStyle=color;
   if(o.arrows){const step=Math.max(width*1.8,60/z),s=Math.max(4,Math.min(width*.22*z,22));let acc=step/2;ctx.lineWidth=Math.max(1.6,s*.28);ctx.lineCap='round';ctx.lineJoin='round';
     for(let i=1;i<pts.length;i++){const a=pts[i-1],b=pts[i],sl=Math.hypot(b.x-a.x,b.y-a.y),ux=(b.x-a.x)/sl,uy=(b.y-a.y)/sl;
       while(acc<=sl){const [cx,cy]=W2S(a.x+ux*acc,a.y+uy*acc);ctx.beginPath();ctx.moveTo(cx-ux*s-uy*s*.9,cy-uy*s+ux*s*.9);ctx.lineTo(cx,cy);ctx.lineTo(cx-ux*s+uy*s*.9,cy-uy*s-ux*s*.9);ctx.stroke();acc+=step}
@@ -401,8 +425,11 @@ function render(W,H){
     for(let k=Math.floor(x0/st);k*st<=x1;k++){const sx=Math.round(k*st*z+view.ox)+.5;ctx.strokeStyle=(k*st)%mj===0?C['grid-major']:C.grid;line(sx,0,sx,h)}
     for(let k=Math.floor(y0/st);k*st<=y1;k++){const sy=Math.round(k*st*z+view.oy)+.5;ctx.strokeStyle=(k*st)%mj===0?C['grid-major']:C.grid;line(0,sy,w,sy)}}
   // Wege
-  (S.paths||[]).forEach(p=>{const k=PKINDS[p.kind]||PKINDS.traffic;drawPath(p.pts,p.width,k.c,{sel:sel?.type==='path'&&sel.id===p.id,hov:hover?.type==='path'&&hover.id===p.id,arrows:p.arrows,label:p.name})});
-  if(tool==='path'&&pdraw.pts.length)drawPath(pdraw.pts.concat(snapCur?[{x:snapCur.x,y:snapCur.y}]:[]),pathDef.width,PKINDS[pathDef.kind].c,{alpha:.1,arrows:PKINDS[pathDef.kind].ar});
+  const draft=tool==='path'&&pdraw.pts.length?{pts:pdraw.pts.concat(snapCur?[{x:snapCur.x,y:snapCur.y}]:[]),...(pdraw.host&&Pt(pdraw.host)?{kind:Pt(pdraw.host).kind,width:Pt(pdraw.host).width}:pathDef)}:null;
+  drawPathsUnion((S.paths||[]).concat(draft?[draft]:[]));
+  (S.paths||[]).forEach(p=>{const k=PKINDS[p.kind]||PKINDS.traffic,isSel=sel?.type==='path'&&sel.id===p.id,isHov=hover?.type==='path'&&hover.id===p.id;
+    drawPath(p.pts,p.width,k.c,{noBand:!(isSel||isHov),alpha:isSel?.1:.04,sel:isSel,hov:isHov,arrows:p.arrows,label:p.name})});
+  if(draft)drawPath(draft.pts,draft.width,PKINDS[draft.kind].c,{noBand:true,arrows:PKINDS[draft.kind].ar});
   // Wände
   const tw=Math.max(2,S.thick*z);ctx.lineCap='square';
   S.walls.forEach(wl=>{const a=V(wl.a),b=V(wl.b);const [ax,ay]=W2S(a.x,a.y),[bx,by]=W2S(b.x,b.y);ctx.strokeStyle=C.wall;ctx.lineWidth=tw;line(ax,ay,bx,by)});
@@ -514,7 +541,7 @@ cv.addEventListener('pointerdown',e=>{
   if(tool==='wall'){placeWallPoint(snapPoint(wx,wy,{from:draw.last?V(draw.last):null,shift:e.shiftKey}));snapCur=snapPoint(wx,wy,{from:draw.last?V(draw.last):null,shift:e.shiftKey});req();return}
   if(tool==='text'){const h=hitTest(sx,sy);if(h?.type==='text'){openTextDialog(Tx(h.id));return}
     const g=opts.snap?snapUnit():0,x=g?Math.round(wx/g)*g:wx,y=g?Math.round(wy/g)*g:wy;openTextDialog(null,x,y);return}
-  if(tool==='path'){const o={from:pdraw.pts[pdraw.pts.length-1]||null,shift:e.shiftKey,objPts:true};addPathPt(snapPoint(wx,wy,o));snapCur=snapPoint(wx,wy,{...o,from:pdraw.pts[pdraw.pts.length-1]||null});req();return}
+  if(tool==='path'){const o={from:pdraw.pts[pdraw.pts.length-1]||null,shift:e.shiftKey,objPts:true,pathLines:true};addPathPt(snapPoint(wx,wy,o));snapCur=snapPoint(wx,wy,{...o,from:pdraw.pts[pdraw.pts.length-1]||null});req();return}
   if(tool==='measure'){const p=snapPoint(wx,wy,{from:meas,shift:e.shiftKey,objPts:true});
     if(!meas)meas={x:p.x,y:p.y};else{if(Math.hypot(p.x-meas.x,p.y-meas.y)>.5){pushUndo(snap());const id=uid();S.dims.push({id,x1:meas.x,y1:meas.y,x2:p.x,y2:p.y});changed()}meas=null}
     req();return}
@@ -537,7 +564,7 @@ cv.addEventListener('pointermove',e=>{
     if(!drag.moved&&Math.hypot(sx-drag.sx,sy-drag.sy)<4)return;drag.moved=true;
     if(drag.kind==='vert'){const v=V(drag.id),p=snapPoint(wx,wy,{exclude:new Set([drag.id]),shift:e.shiftKey});v.x=p.x;v.y=p.y;drag.target=p.vid;snapCur=null}
     else if(drag.kind==='dimEnd'){const m=Dm(drag.id),p=snapPoint(wx,wy,{objPts:true,shift:e.shiftKey,from:drag.end===1?{x:m.x2,y:m.y2}:{x:m.x1,y:m.y1}});if(drag.end===1){m.x1=p.x;m.y1=p.y}else{m.x2=p.x;m.y2=p.y}}
-    else if(drag.kind==='pathPt'){const p=Pt(drag.id),i=drag.idx,q=snapPoint(wx,wy,{objPts:true,shift:e.shiftKey,from:p.pts[i-1]||p.pts[i+1],excludePath:{id:p.id,idx:i}});p.pts[i].x=q.x;p.pts[i].y=q.y}
+    else if(drag.kind==='pathPt'){const p=Pt(drag.id),i=drag.idx,q=snapPoint(wx,wy,{objPts:true,pathLines:i===0||i===p.pts.length-1,shift:e.shiftKey,from:p.pts[i-1]||p.pts[i+1],excludePath:{id:p.id,idx:i}});p.pts[i].x=q.x;p.pts[i].y=q.y}
     else if(drag.kind==='path'){const p=Pt(drag.id);let dx=wx-drag.wx,dy=wy-drag.wy;if(opts.snap&&!e.altKey){const g=snapUnit();dx=Math.round(dx/g)*g;dy=Math.round(dy/g)*g}p.pts.forEach((q,i)=>{q.x=drag.p0[i].x+dx;q.y=drag.p0[i].y+dy})}
     else if(drag.kind==='text'){const t=Tx(drag.id);let nx=wx-drag.dx,ny=wy-drag.dy;if(opts.snap&&!e.altKey){const g=snapUnit();nx=Math.round(nx/g)*g;ny=Math.round(ny/g)*g}t.x=nx;t.y=ny}
     else if(drag.kind==='obj'){const o=O(drag.id);let nx=wx-drag.dx,ny=wy-drag.dy;
@@ -549,10 +576,12 @@ cv.addEventListener('pointermove',e=>{
     req();return}
   if(tool==='select'){const g=gapHit(sx,sy);hover=g?null:hitTest(sx,sy);cv.style.cursor=g?'pointer':hover?(hover.type==='obj'||hover.type==='text'||hover.type==='path'||hover.type==='pathPt'||hover.type==='wall'||hover.type==='vert'||hover.type==='dimEnd'?'move':'pointer'):'grab'}
   else if(tool==='text'){const h=hitTest(sx,sy);hover=h?.type==='text'?h:null;cv.style.cursor=hover?'pointer':'text';snapCur=null}
-  else{cv.style.cursor='crosshair';snapCur=snapPoint(wx,wy,{from:tool==='wall'?(draw.last?V(draw.last):null):tool==='path'?(pdraw.pts[pdraw.pts.length-1]||null):meas,shift:e.shiftKey,objPts:tool!=='wall'})}
+  else{cv.style.cursor='crosshair';snapCur=snapPoint(wx,wy,{from:tool==='wall'?(draw.last?V(draw.last):null):tool==='path'?(pdraw.pts[pdraw.pts.length-1]||null):meas,shift:e.shiftKey,objPts:tool!=='wall',pathLines:tool==='path'})}
   req()});
 function endDrag(){if(drag&&drag.kind!=='pan'&&drag.moved){
     if(drag.kind==='vert'&&drag.target)mergeVert(drag.id,drag.target);
+    if(drag.kind==='pathPt'){const p=Pt(drag.id),n=p.pts.length-1;if(drag.idx===0||drag.idx===n){const q=p.pts[drag.idx],m=pathEndAt(q.x,q.y,p.id);
+      if(m){const j=joinPts(p.pts,m.p.pts);if(j){p.pts=dedupe(j);S.paths=S.paths.filter(x=>x!==m.p);sel={type:'path',id:p.id}}}}}
     unfixChanged(drag.lens,null);pushUndo(drag.before);changed()}
   drag=null}
 cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
@@ -596,7 +625,7 @@ window.addEventListener('keydown',e=>{
 /* ---------- Aktionen ---------- */
 const HINTS={select:'<b>Klicken</b> wählt aus · <b>Ziehen</b> verschiebt (Wand senkrecht, Shift frei) · <b>Doppelklick</b> ändert Länge bzw. Größe · Leere Fläche ziehen = verschieben',
   wall:'<b>Klicken</b> setzt Eckpunkte · <b>Zahl tippen + Enter</b> für exakte Achslänge (z.&nbsp;B. 350 oder 3,5m) · <b>Shift</b> rechtwinklig · <b>Esc</b> oder Doppelklick beendet',
-  path:'<b>Klicken</b> setzt Wegpunkte · <b>Zahl + Enter</b> für exakte Segmentlänge · <b>Shift</b> rechtwinklig · <b>Rücktaste</b> nimmt Punkt zurück · <b>Enter</b> oder Doppelklick beendet',
+  path:'<b>Klicken</b> setzt Wegpunkte · Am <b>Ende eines Weges</b> ansetzen verlängert ihn, <b>auf einem Weg</b> enden ergibt einen Abzweig · <b>Zahl + Enter</b> für exakte Segmentlänge · <b>Shift</b> rechtwinklig · <b>Rücktaste</b> nimmt Punkt zurück · <b>Enter</b> oder Doppelklick beendet',
   text:'<b>Klicken</b> setzt einen Text, z.&nbsp;B. einen Raumnamen · Klick auf vorhandenen Text bearbeitet ihn · Verschieben im Auswahl-Werkzeug',
   measure:'<b>Klicken</b> Startpunkt, <b>Klicken</b> Endpunkt · rastet an Ecken und Objektkanten ein · <b>Shift</b> rechtwinklig · Messung bleibt stehen, Entf löscht'};
 function setTool(t){if(t==='object'){openObjDialog();return}if(tool==='wall'&&draw.last&&t!=='wall')endChain();if(tool==='path'&&pdraw.pts.length&&t!=='path')finishPath();meas=null;tool=t;hover=null;snapCur=null;
@@ -661,11 +690,16 @@ function openTextDialog(t,x,y){const isNew=!t,v=t||{text:'',size:35,bold:true,ro
     if(isNew){const n={id:uid(),x,y,...data};S.texts.push(n);sel={type:'text',id:n.id}}else{Object.assign(t,data);sel={type:'text',id:t.id}}
     changed()},isNew?'Einfügen':'Übernehmen');
   const ta=$('#f-txt');ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();$('#dlg-form').requestSubmit()}})}
-function addPathPt(p){const last=pdraw.pts[pdraw.pts.length-1];if(last&&Math.hypot(p.x-last.x,p.y-last.y)<.5){finishPath();return}pdraw.pts.push({x:p.x,y:p.y});req()}
+function addPathPt(p){const last=pdraw.pts[pdraw.pts.length-1];if(last&&Math.hypot(p.x-last.x,p.y-last.y)<.5){finishPath();return}
+  if(!pdraw.pts.length)pdraw.host=pathEndAt(p.x,p.y)?.p.id||null;pdraw.pts.push({x:p.x,y:p.y});req()}
 function placeNumericPath(){const len=parseLen(pdraw.buf);pdraw.buf='';if(!(len>0)){req();return}const f=pdraw.pts[pdraw.pts.length-1];
   let dx=(snapCur?snapCur.x:f.x+1)-f.x,dy=(snapCur?snapCur.y:f.y)-f.y,l=Math.hypot(dx,dy);if(l<1e-6){dx=1;dy=0;l=1}pdraw.pts.push({x:f.x+dx/l*len,y:f.y+dy/l*len});req()}
 function finishPath(){const pts=dedupe(pdraw.pts);pdraw={pts:[],buf:''};if(pts.length<2){req();return}
-  pushUndo(snap());S.paths=S.paths||[];const k=PKINDS[pathDef.kind],n={id:uid(),name:k.n,kind:pathDef.kind,width:pathDef.width,arrows:k.ar,pts};
+  pushUndo(snap());S.paths=S.paths||[];
+  const st=pathEndAt(pts[0].x,pts[0].y),en=pathEndAt(pts[pts.length-1].x,pts[pts.length-1].y,st&&st.p.id);
+  if(st||en){const host=(st||en).p;host.pts=dedupe(joinPts(host.pts,pts)||host.pts);
+    if(st&&en){const j=joinPts(host.pts,en.p.pts);if(j){host.pts=dedupe(j);S.paths=S.paths.filter(q=>q!==en.p)}}
+    sel={type:'path',id:host.id};changed();return}const k=PKINDS[pathDef.kind],n={id:uid(),name:k.n,kind:pathDef.kind,width:pathDef.width,arrows:k.ar,pts};
   S.paths.push(n);sel={type:'path',id:n.id};changed();openPathDialog(n,true)}
 function openPathDialog(p,isNew){if(!p)return;
   const html=`<div class="two"><label class="fld"><span>Art</span><select id="f-pk">${Object.entries(PKINDS).map(([k,v])=>`<option value="${k}"${k===p.kind?' selected':''}>${v.n}</option>`).join('')}</select></label>
@@ -777,7 +811,7 @@ function updatePanel(){const P=$('#panel');let h='';
   else if(sel?.type==='path'&&Pt(sel.id)){const p=Pt(sel.id),L=pathLen(p.pts);
     h=`<p class="eyebrow">Weg · ${(PKINDS[p.kind]||PKINDS.traffic).n}</p><h2>${esc(p.name)}</h2><dl class="props"><dt>Länge</dt><dd>${fmt(L)}</dd><dt>Breite</dt><dd>${num(p.width)} cm</dd><dt>Fläche ca.</dt><dd>${num(L*p.width/1e4,2)} m²</dd><dt>Wegpunkte</dt><dd>${p.pts.length}</dd></dl>
     <div class="btns"><button class="act" data-act="pedit">Bearbeiten</button>${p.arrows?'<button class="act" data-act="prev">Richtung umkehren</button>':''}<button class="act danger" data-act="del">Löschen</button></div>
-    <p class="note">Wegpunkte (Quadrate) lassen sich ziehen. Ziehen am Weg verschiebt ihn komplett, Pfeiltasten in 1-cm-Schritten.</p>`}
+    <p class="note">Wegpunkte (Quadrate) lassen sich ziehen. Ein Endpunkt, der auf das Ende eines anderen Weges gezogen wird, verbindet beide zu einem Weg. Ziehen am Weg verschiebt ihn komplett.</p>`}
   else if(sel?.type==='text'&&Tx(sel.id)){const t=Tx(sel.id);
     h=`<p class="eyebrow">Text</p><h2>${esc(t.text).replace(/\n/g,'<br>')}</h2><dl class="props"><dt>Schrifthöhe</dt><dd>${num(t.size)} cm</dd><dt>Ausrichtung</dt><dd>${t.rot?'senkrecht':'waagerecht'}</dd></dl>
     <div class="btns"><button class="act" data-act="tedit">Bearbeiten</button><button class="act" data-act="rot">Drehen 90°</button><button class="act danger" data-act="del">Löschen</button></div>
