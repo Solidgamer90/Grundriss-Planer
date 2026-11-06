@@ -6,7 +6,7 @@ Das ganze Programm steckt in **einer einzigen HTML-Datei**. Es braucht keinen Se
 
 ## Schnellstart
 
-1. `grundriss-planer.html` herunterladen.
+1. `grundriss-planer.html` aus diesem Repository herunterladen.
 2. Im Browser öffnen (Chrome, Edge oder Firefox).
 3. Beim Start ist ein Beispielplan geladen. Mit **Neu** beginnst du einen leeren Grundriss.
 
@@ -173,3 +173,7 @@ Beachte dabei: Der automatisch gespeicherte Stand liegt pro Browser und pro Adre
 - Türen und Fenster sind keine eigenen Elemente. Als Ersatz kannst du Objekte oder Texte verwenden.
 - Wandlängen, die du beim Zeichnen eintippst, gelten immer als Achsmaß. Danach kannst du die Wand per Doppelklick auf ein Innen- oder Außenmaß bringen.
 - Gleichzeitiges Bearbeiten durch mehrere Personen ist nicht möglich.
+
+## Lizenz
+
+Veröffentlicht unter der [MIT-Lizenz](LICENSE). Du darfst das Tool frei verwenden, verändern und weitergeben, auch kommerziell. Der Copyright-Hinweis muss dabei erhalten bleiben. Das Tool wird ohne Gewähr bereitgestellt.
